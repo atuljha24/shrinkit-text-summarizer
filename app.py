@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from summarization_algorithms import TextSummarizer
 from multilingual_summarizer import MultilingualSummarizer
+from monitoring import metrics
 import logging
 from flask_swagger_ui import get_swaggerui_blueprint
 from flask_caching import Cache
@@ -52,6 +53,7 @@ def send_static(path):
     return send_from_directory('static', path)
 
 @app.route('/')
+@metrics.track_duration('home_page_load')
 def home():
     return render_template('index.html')
 
@@ -63,18 +65,27 @@ def generate_cache_key():
 @app.route('/summarize', methods=['POST'])
 @limiter.limit("10 per minute")
 @cache.cached(timeout=300, key_prefix=generate_cache_key)
+@metrics.track_duration('summarize_request')
 def summarize():
     try:
         start_time = time.time()
         data = request.get_json()
         
         if not data or 'text' not in data:
+            metrics.track_event('summarize_error', {'error': 'No text provided'})
             return jsonify({'error': 'No text provided'}), 400
             
         text = data['text']
         algorithm = data.get('algorithm', 'textrank')
         num_sentences = int(data.get('num_sentences', 5))
         language = data.get('language', 'english')
+        
+        metrics.track_event('summarize_params', {
+            'algorithm': algorithm,
+            'num_sentences': num_sentences,
+            'language': language,
+            'text_length': len(text)
+        })
         
         if language != 'english':
             summary = multilingual_summarizer.summarize(
@@ -93,6 +104,11 @@ def summarize():
         processing_time = time.time() - start_time
         logger.info(f"Summarization completed in {processing_time:.2f} seconds")
         
+        metrics.track_event('summarize_success', {
+            'processing_time': processing_time,
+            'summary_length': len(summary)
+        })
+        
         return jsonify({
             'summary': summary,
             'processing_time': processing_time,
@@ -102,10 +118,12 @@ def summarize():
         
     except Exception as e:
         logger.error(f"Error in summarization: {str(e)}")
+        metrics.track_event('summarize_error', {'error': str(e)})
         return jsonify({'error': str(e)}), 500
 
 @app.route('/languages', methods=['GET'])
 @cache.cached(timeout=3600)
+@metrics.track_duration('languages_request')
 def get_languages():
     """Return list of supported languages."""
     languages = {
@@ -118,9 +136,21 @@ def get_languages():
     }
     return jsonify(languages)
 
+@app.route('/metrics', methods=['GET'])
+@metrics.track_duration('metrics_request')
+def get_metrics():
+    """Get current metrics summary."""
+    try:
+        summary = metrics.get_metrics_summary()
+        return jsonify(summary)
+    except Exception as e:
+        logger.error(f"Error getting metrics: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(429)
 def ratelimit_handler(e):
     """Handle rate limit exceeded errors."""
+    metrics.track_event('rate_limit_exceeded', {'description': str(e.description)})
     return jsonify({
         'error': 'Rate limit exceeded',
         'description': str(e.description)
