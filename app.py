@@ -3,14 +3,21 @@ from summarization_algorithms import TextSummarizer
 from multilingual_summarizer import MultilingualSummarizer
 import logging
 from flask_swagger_ui import get_swaggerui_blueprint
+from flask_caching import Cache
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import time
 
 app = Flask(__name__)
 summarizer = TextSummarizer()
 multilingual_summarizer = MultilingualSummarizer()
 
 # Set up logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Swagger UI configuration
 SWAGGER_URL = '/api/docs'
@@ -24,6 +31,22 @@ swaggerui_blueprint = get_swaggerui_blueprint(
 )
 app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
 
+# Configure caching
+cache_config = {
+    "DEBUG": True,
+    "CACHE_TYPE": "SimpleCache",
+    "CACHE_DEFAULT_TIMEOUT": 300
+}
+app.config.from_mapping(cache_config)
+cache = Cache(app)
+
+# Configure rate limiting
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["100 per day", "10 per minute"]
+)
+
 @app.route('/static/<path:path>')
 def send_static(path):
     return send_from_directory('static', path)
@@ -32,47 +55,76 @@ def send_static(path):
 def home():
     return render_template('index.html')
 
+def generate_cache_key():
+    """Generate a cache key from the request data."""
+    data = request.get_json()
+    return f"{data.get('text', '')}:{data.get('algorithm', '')}:{data.get('num_sentences', '')}:{data.get('language', '')}"
+
 @app.route('/summarize', methods=['POST'])
+@limiter.limit("10 per minute")
+@cache.cached(timeout=300, key_prefix=generate_cache_key)
 def summarize():
     try:
+        start_time = time.time()
         data = request.get_json()
-        text = data.get('text', '')
-        algorithm = data.get('algorithm', 'textrank')
-        n_sentences = int(data.get('n_sentences', 5))
-        language = data.get('language', 'en')
         
-        if not text:
+        if not data or 'text' not in data:
             return jsonify({'error': 'No text provided'}), 400
+            
+        text = data['text']
+        algorithm = data.get('algorithm', 'textrank')
+        num_sentences = int(data.get('num_sentences', 5))
+        language = data.get('language', 'english')
         
-        if language == 'en':
-            summary = summarizer.extractive_summarize(text, n_sentences, algorithm)
-            result = {'summary': summary}
-        else:
-            result = multilingual_summarizer.summarize_multilingual(
+        if language != 'english':
+            summary = multilingual_summarizer.summarize(
                 text=text,
                 source_lang=language,
-                summarizer=summarizer,
-                n_sentences=n_sentences
+                n_sentences=num_sentences,
+                algorithm=algorithm
+            )
+        else:
+            summary = summarizer.extractive_summarize(
+                text=text,
+                n_sentences=num_sentences,
+                algorithm=algorithm
             )
             
-        return jsonify(result)
+        processing_time = time.time() - start_time
+        logger.info(f"Summarization completed in {processing_time:.2f} seconds")
+        
+        return jsonify({
+            'summary': summary,
+            'processing_time': processing_time,
+            'algorithm': algorithm,
+            'language': language
+        })
         
     except Exception as e:
-        logging.error(f"Error in summarization: {str(e)}")
+        logger.error(f"Error in summarization: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/languages')
+@app.route('/languages', methods=['GET'])
+@cache.cached(timeout=3600)
 def get_languages():
-    """Get list of supported languages."""
+    """Return list of supported languages."""
     languages = {
-        'en': 'English',
-        'es': 'Spanish',
-        'fr': 'French',
-        'de': 'German',
-        'it': 'Italian',
-        'pt': 'Portuguese'
+        'english': 'English',
+        'spanish': 'Spanish',
+        'french': 'French',
+        'german': 'German',
+        'italian': 'Italian',
+        'portuguese': 'Portuguese'
     }
     return jsonify(languages)
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors."""
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'description': str(e.description)
+    }), 429
 
 if __name__ == '__main__':
     app.run(debug=True) 
