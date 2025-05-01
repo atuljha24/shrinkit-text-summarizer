@@ -28,6 +28,12 @@
             border-radius: 5px;
             margin-top: 20px;
         }
+        .translation-box {
+            background-color: #e9ecef;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -41,6 +47,13 @@
             </div>
             
             <div class="row mb-3">
+                <div class="col">
+                    <label for="language" class="form-label">Language:</label>
+                    <select class="form-select" id="language">
+                        <option value="en">English</option>
+                        <!-- Other languages will be loaded dynamically -->
+                    </select>
+                </div>
                 <div class="col">
                     <label for="algorithm" class="form-label">Algorithm:</label>
                     <select class="form-select" id="algorithm">
@@ -65,6 +78,11 @@
             <p class="mt-2">Generating summary...</p>
         </div>
         
+        <div id="translation" class="translation-box" style="display: none;">
+            <h4>English Translation:</h4>
+            <p id="translationText"></p>
+        </div>
+        
         <div id="summary" class="summary-box" style="display: none;">
             <h4>Summary:</h4>
             <p id="summaryText"></p>
@@ -72,16 +90,39 @@
     </div>
 
     <script>
+        // Load supported languages
+        async function loadLanguages() {
+            try {
+                const response = await fetch('/languages');
+                const languages = await response.json();
+                const select = document.getElementById('language');
+                
+                for (const [code, name] of Object.entries(languages)) {
+                    const option = document.createElement('option');
+                    option.value = code;
+                    option.textContent = name;
+                    select.appendChild(option);
+                }
+            } catch (error) {
+                console.error('Error loading languages:', error);
+            }
+        }
+        
+        // Load languages when page loads
+        loadLanguages();
+        
         document.getElementById('summarizeForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const text = document.getElementById('text').value;
+            const language = document.getElementById('language').value;
             const algorithm = document.getElementById('algorithm').value;
             const n_sentences = document.getElementById('n_sentences').value;
             
             // Show loading
             document.querySelector('.loading').style.display = 'block';
             document.getElementById('summary').style.display = 'none';
+            document.getElementById('translation').style.display = 'none';
             
             try {
                 const response = await fetch('/summarize', {
@@ -91,6 +132,7 @@
                     },
                     body: JSON.stringify({
                         text,
+                        language,
                         algorithm,
                         n_sentences
                     })
@@ -99,6 +141,12 @@
                 const data = await response.json();
                 
                 if (response.ok) {
+                    // Show translation if available
+                    if (data.english_translation) {
+                        document.getElementById('translationText').textContent = data.english_translation;
+                        document.getElementById('translation').style.display = 'block';
+                    }
+                    
                     document.getElementById('summaryText').textContent = data.summary;
                     document.getElementById('summary').style.display = 'block';
                 } else {
