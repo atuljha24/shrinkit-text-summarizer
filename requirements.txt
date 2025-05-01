@@ -10,4 +10,5 @@ requests>=2.26.0
 beautifulsoup4>=4.9.0
 torch>=1.9.0
 transformers>=4.11.0
-sentencepiece>=0.1.96 
+sentencepiece>=0.1.96
+flask-swagger-ui>=3.36.0 

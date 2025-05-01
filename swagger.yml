@@ -1,0 +1,99 @@
+openapi: 3.0.0
+info:
+  title: ShrinkIt Text Summarizer API
+  description: API for multilingual text summarization
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5000
+    description: Development server
+
+paths:
+  /summarize:
+    post:
+      summary: Generate text summary
+      description: Summarize text using various algorithms and language support
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Text to summarize
+                language:
+                  type: string
+                  description: Language code (en, es, fr, de, it, pt)
+                  default: en
+                algorithm:
+                  type: string
+                  description: Summarization algorithm to use
+                  enum: [textrank, tfidf, frequency]
+                  default: textrank
+                n_sentences:
+                  type: integer
+                  description: Number of sentences in summary
+                  minimum: 1
+                  maximum: 10
+                  default: 5
+              required:
+                - text
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                    description: Generated summary
+                  english_translation:
+                    type: string
+                    description: English translation (if source is non-English)
+                    nullable: true
+                  original_text:
+                    type: string
+                    description: Original input text
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /languages:
+    get:
+      summary: Get supported languages
+      description: Returns a list of supported languages for summarization
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                example:
+                  en: English
+                  es: Spanish
+                  fr: French
+                  de: German
+                  it: Italian
+                  pt: Portuguese 

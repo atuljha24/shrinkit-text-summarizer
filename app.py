@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from summarization_algorithms import TextSummarizer
 from multilingual_summarizer import MultilingualSummarizer
 import logging
+from flask_swagger_ui import get_swaggerui_blueprint
 
 app = Flask(__name__)
 summarizer = TextSummarizer()
@@ -10,6 +11,22 @@ multilingual_summarizer = MultilingualSummarizer()
 # Set up logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Swagger UI configuration
+SWAGGER_URL = '/api/docs'
+API_URL = '/static/swagger.yml'
+swaggerui_blueprint = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={
+        'app_name': "ShrinkIt Text Summarizer API"
+    }
+)
+app.register_blueprint(swaggerui_blueprint, url_prefix=SWAGGER_URL)
+
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory('static', path)
 
 @app.route('/')
 def home():
